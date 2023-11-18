@@ -1,0 +1,153 @@
+# SPDX-FileCopyrightText: 2021 Jose David M.
+# SPDX-FileCopyrightText: 2023 Melissa LeBlanc-Williams for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
+# NOTE: Make sure you've set up your settings.toml file before running this example
+# https://learn.adafruit.com/getting-started-with-web-workflow-using-the-code-editor/
+"""
+This example shows a web address QR on the display
+"""
+
+import time
+import adafruit_qualia
+import os
+from adafruit_qualia.graphics import Graphics, Displays
+from adafruit_qualia.peripherals import Peripherals
+import displayio
+import terminalio
+
+
+
+base = adafruit_qualia.Qualia(Displays.BAR320X820, rotation=90)
+
+# Background Information
+graphics = base.graphics
+
+# Set up Peripherals
+peripherals = base.peripherals
+
+# Set display to show
+display = base.display
+
+display.auto_refresh=False
+
+def display_qr_and_text(qr_data, text, x=0, y=0, relative_x_from_center=None, relative_y_from_center=None, scale=10, include_qr_offset=False, include_text_x_offset=-20):
+    global graphics, display, base
+    qr_size = scale
+    if relative_x_from_center is not None:
+        x = (display.width // 2) + relative_x_from_center
+    if relative_y_from_center is not None:
+        y = display.height // 2 + relative_y_from_center
+    if include_qr_offset:
+        x_offset = (qr_size + 5) * scale
+        y_offset = (qr_size + 4) * scale
+        x -= x_offset
+        y -= y_offset
+    qr = graphics.qrcode(qr_data, qr_size=scale, x=x, y=y, qr_color=0x121212, qr_bg_color=0x0000aa, return_group=True)
+    display.root_group.append(qr)
+    base.add_text(text_position=(x + include_text_x_offset, 0.9 * display.height), text=text, text_scale=3, text_wrap=0, text_maxlen=180, text_color=0xFFFFFF)
+    return (x,y)
+
+
+
+wifi = adafruit_qualia.network.WiFi()
+
+if not wifi.is_connected and wifi.ip_address is not None:
+    # using circuitpython get portalbase wifi information so we can construct the url from IP and port and password (both read from settings.toml using os.getenv("field", default_value) )
+    ip = wifi.ip_address
+    port = os.getenv("CIRCUITPY_WEB_API_PORT", "80")
+    password = os.getenv("CIRCUITPY_WEB_API_PASSWORD", "password")
+
+    # WebPage to show in the QR
+    webpage = f"http://{ip}:{port}/"
+
+else:
+    # if not then craft a fake url that starts with http:// but infact has a clever use of @ (%40) and :(%3a) etc to really just link to about:blank except about:wifi_not_connected, like a low grade url escape that only a QR reader would fall for as it's technically not a valid url; be better if it was a javascript: type url that supported alerts etc, maybe just a website with good customisation, a bit like lmgtfy.com or a meme generator
+    #webpage="http://%40%3a%2f%2fabout%3awifi_not_connected"
+    webpage = "https://learn.adafruit.com/circuitpython-with-esp32-quick-start/setting-up-web-workflow"
+    ip=None
+
+
+# QR size Information
+qr_size = 9  # Pixels
+scale = 8
+
+# Generate QR code bitmap for webpage
+display_qr_and_text(webpage, "IP: " + str(ip) if ip else "", relative_x_from_center=100,y=10, scale=scale, include_text_x_offset=-30)
+
+
+# Generate Wifi joining QR code
+qrdata=f"WIFI:S:{os.getenv('CIRCUITPY_WIFI_SSID', '*Unset*')};T:{os.getenv('CIRCUITPY_WIFI_TYPE', 'WPA')};P:{os.getenv('CIRCUITPY_WIFI_PASSWORD', '*Unset*')};" if ip else "https://www.adafruit.com"
+(x,y)=display_qr_and_text(qrdata, "SSID: " + os.getenv("CIRCUITPY_WIFI_SSID", "*Unset* read help->"), relative_x_from_center=-330,y=10, scale=scale, include_text_x_offset=-30)
+os.listdir("/")
+if not ip:
+    # Create a Bitmap from a PNG file
+    image = displayio.OnDiskBitmap("/circuitpythonlogo.bmp")
+
+    palette = displayio.ColorConverter()
+
+    # # Create a Palette
+    # palette = displayio.Palette(32)
+    # for i in range(2,32):
+    #     palette[i] = 0x000000 if i % 2 == 1 else 0xFFFFFF
+    # palette[0] = 0XFFFFFF
+    # palette[1] = 0x000000
+    # palette.make_transparent(31)
+    # # palette[2] = 0xFFFFFF
+    # # palette[3] = 0xFF0000
+    # # palette.make_opaque(0)
+    # # palette.make_opaque(1)
+    # # palette.make_opaque(2)
+    # # palette.make_transparent(3)
+
+    # Create a TileGrid
+    tilegrid = displayio.TileGrid(
+        bitmap=image,
+        pixel_shader=palette,
+        x=x,
+        y=y,
+    )
+    tilegrid
+    img_group = displayio.Group()
+    img_group.append(tilegrid)
+
+    display.auto_refresh=False
+    # Add the TileGrid to the display
+    display.root_group.append(img_group)
+
+display.refresh()
+display.auto_refresh=True
+
+counter=0
+while True:
+    counter+=1
+    # if counter % 30 == 0:
+    #     for group in base.splash:
+    #         for child in group:
+    #             if isinstance(child, displayio.Bitmap):
+    #                 # Child is a bitmap
+    #                 # Perform actions for bitmap
+    #                 print("bitmap")
+    #                 print(dir(child))
+    #                 print(dir(group))
+    #                 pass
+    #             elif isinstance(child, displayio.TileGrid):
+    #                 # Child is a text
+    #                 # Perform actions for text
+    #                 print("label")
+    #                 print(dir(child))
+    #                 print(dir(group))
+    #                 pass
+    #             else:    
+    #                 # Child is a group
+    #                 # Perform actions for group
+    #                 print("else")
+    #                 print(dir(child))
+    #                 print(dir(group))
+    #                 pass
+    if peripherals.button_up:
+        peripherals.backlight = True
+    if peripherals.button_down:
+        peripherals.backlight = False
+    time.sleep(0.1)
