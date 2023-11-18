@@ -55,15 +55,40 @@ def get_item_at(x, y, group):
     for item in group:
         if not hasattr(item, "x") or not hasattr(item, "y"):
             continue
-        if isinstance(item, displayio.Group):
-            return get_item_at(x, y, item)
-        elif isinstance(item, displayio.TileGrid):
+        #print("item pos+size", item.x, item.y, item.width if hasattr(item,"width") else item.tile_width if hasattr(item,"tile_width") else "unknown", item.height if hasattr(item,"height") else item.tile_height if hasattr(item,"tile_height") else "unknown")
+        print("item position:", x,y)
+        print("item tile_width:", item.tile_width if hasattr(item,"tile_width") else "unknown")
+        print("item tile_height:", item.tile_height if hasattr(item,"tile_height") else "unknown")
+        print("item width:", item.width if hasattr(item,"width") else "unknown")
+        print("item height:", item.height if hasattr(item,"height") else "unknown")
+        if isinstance(item, displayio.TileGrid):
             print("Checking TileGrid", json.dumps(item))
-            if item.x <= x and x < (item.x + item.width) and item.y <= y and y < (item.y + item.height):
+            if item.x <= x and x < (item.x + item.tile_width) and item.y <= y and y < (item.y + item.tile_height):
                 print("Touched TileGrid", json.dumps(item))
                 return item
+        elif isinstance(item, displayio.Group):
+            print("Checking Group", json.dumps(item))
+            data = get_item_at(x, y, item)
+            if data is not None:
+                return data
     return None
 
+def print_items(group):
+    print("Printing items in group", json.dumps(group))
+    for item in group:
+        if not hasattr(item, "x") or not hasattr(item, "y"):
+            continue
+        elif isinstance(item, displayio.TileGrid):
+            print("printing TileGrid", json.dumps(item), json.dumps(dir(item)))
+        if isinstance(item, displayio.Group):
+            print("Checking Group", json.dumps(item))
+            print_items(item)
+        else:
+            print("Skipping", json.dumps(item), json.dumps(dir(item)))
+    print("Finished printing items in group", json.dumps(group), json.dumps(dir(group)))
+
+
+callbacks = {}
 
 # Define the triggerTouch function or import it from a module
 def triggerTouch(x, y, finger):
@@ -71,13 +96,17 @@ def triggerTouch(x, y, finger):
     print("Touched", x, y, finger)
     #iterate through the tilegrids and groups (which contain tilegrids) inside root_group, testing the x,y against the bounding box of each tilegrid
     item = get_item_at(x, y, display.root_group)
+    if item is None:
+        print("No item found")
+        return False
+    print("Found item", json.dumps(item), json.dumps(dir(item)))        
     gc.collect()
-    if item and hasattr(item, "touch_callback"):
-        item.touch_callback(x, y, finger)
+    if item in callbacks:
+        callbacks[item](item, x, y, finger)
         return True
     return False
 
-def example_touch_callback(x, y, finger):
+def example_touch_callback(item, x, y, finger):
     print("Touched Example Callback, toggling hidden status")
     item.hidden = not item.hidden
 
@@ -120,26 +149,12 @@ display_qr_and_text(webpage, "IP: " + str(ip) if ip else "", relative_x_from_cen
 # Generate Wifi joining QR code
 qrdata=f"WIFI:S:{os.getenv('CIRCUITPY_WIFI_SSID', '*Unset*')};T:{os.getenv('CIRCUITPY_WIFI_TYPE', 'WPA')};P:{os.getenv('CIRCUITPY_WIFI_PASSWORD', '*Unset*')};" if ip else "https://www.adafruit.com"
 (x,y)=display_qr_and_text(qrdata, "SSID: " + os.getenv("CIRCUITPY_WIFI_SSID", "*Unset* read help->"), relative_x_from_center=-330,y=10, scale=scale, include_text_x_offset=-30)
-os.listdir("/")
+
 if not ip:
     # Create a Bitmap from a PNG file
     image = displayio.OnDiskBitmap("/circuitpythonlogo-color888.bmp")
 
     palette = displayio.ColorConverter(input_colorspace=displayio.Colorspace.RGB888)
-
-    # # Create a Palette
-    # palette = displayio.Palette(32)
-    # for i in range(2,32):
-    #     palette[i] = 0x000000 if i % 2 == 1 else 0xFFFFFF
-    # palette[0] = 0XFFFFFF
-    # palette[1] = 0x000000
-    # palette.make_transparent(31)
-    # # palette[2] = 0xFFFFFF
-    # # palette[3] = 0xFF0000
-    # # palette.make_opaque(0)
-    # # palette.make_opaque(1)
-    # # palette.make_opaque(2)
-    # # palette.make_transparent(3)
 
     # Create a TileGrid
     tilegrid = displayio.TileGrid(
@@ -148,7 +163,9 @@ if not ip:
         x=x,
         y=y,
     )
-    tilegrid.touch_callback = example_touch_callback
+    callbacks[tilegrid] = example_touch_callback
+
+
     img_group = displayio.Group()
     img_group.append(tilegrid)
 
@@ -158,7 +175,7 @@ if not ip:
 else:
     for item in display.root_group:
         if isinstance(item, displayio.TileGrid):
-            item.touch_callback = example_touch_callback
+            callbacks[item] = example_touch_callback
 
 display.refresh()
 display.auto_refresh=True
@@ -166,14 +183,15 @@ display.auto_refresh=True
 def fix_x_y_for_rotation(x,y):
     global graphics
     if graphics.display.rotation == 90:
-        return (y, graphics.display.height- x)
+        return (y, graphics.display.height- x -1)
     elif graphics.display.rotation == 180:
-        return (graphics.display.width - x, graphics.display.height - y)
+        return (graphics.display.width - x -1, graphics.display.height - y -1)
     elif graphics.display.rotation == 270:
-        return (graphics.display.width - y, x)
+        return (graphics.display.width - y -1, x)
     else:
         return (x,y)
 
+print_items(display.root_group)
 
 counter=0
 while True:
@@ -196,6 +214,7 @@ while True:
                     not 0 <= x < graphics.display.width
                     or not 0 <= y < graphics.display.height
                 ):
+                    print("skipping out of bounds touch")
                     continue  # Skip out of bounds touches
                 triggerTouch(x, y, finger)
         except Exception as e:
