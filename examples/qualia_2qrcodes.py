@@ -12,11 +12,13 @@ This example shows a web address QR on the display
 import time
 import adafruit_qualia
 import os
+import gc
+import json
 from adafruit_qualia.graphics import Graphics, Displays
 from adafruit_qualia.peripherals import Peripherals
 import displayio
 import terminalio
-
+import vectorio
 
 
 base = adafruit_qualia.Qualia(Displays.BAR320X820, rotation=90)
@@ -30,7 +32,7 @@ peripherals = base.peripherals
 # Set display to show
 display = base.display
 
-display.auto_refresh=False
+# display.auto_refresh=False
 
 def display_qr_and_text(qr_data, text, x=0, y=0, relative_x_from_center=None, relative_y_from_center=None, scale=10, include_qr_offset=False, include_text_x_offset=-20):
     global graphics, display, base
@@ -49,11 +51,49 @@ def display_qr_and_text(qr_data, text, x=0, y=0, relative_x_from_center=None, re
     base.add_text(text_position=(x + include_text_x_offset, 0.9 * display.height), text=text, text_scale=3, text_wrap=0, text_maxlen=180, text_color=0xFFFFFF)
     return (x,y)
 
+def get_item_at(x, y, group):
+    for item in group:
+        if not hasattr(item, "x") or not hasattr(item, "y"):
+            continue
+        if isinstance(item, displayio.Group):
+            return get_item_at(x, y, item)
+        elif isinstance(item, displayio.TileGrid):
+            print("Checking TileGrid", json.dumps(item))
+            if item.x <= x and x < (item.x + item.width) and item.y <= y and y < (item.y + item.height):
+                print("Touched TileGrid", json.dumps(item))
+                return item
+    return None
 
+
+# Define the triggerTouch function or import it from a module
+def triggerTouch(x, y, finger):
+    global display
+    print("Touched", x, y, finger)
+    #iterate through the tilegrids and groups (which contain tilegrids) inside root_group, testing the x,y against the bounding box of each tilegrid
+    item = get_item_at(x, y, display.root_group)
+    gc.collect()
+    if item and hasattr(item, "touch_callback"):
+        item.touch_callback(x, y, finger)
+        return True
+    return False
+
+def example_touch_callback(x, y, finger):
+    print("Touched Example Callback, toggling hidden status")
+    item.hidden = not item.hidden
 
 wifi = adafruit_qualia.network.WiFi()
 
-if not wifi.is_connected and wifi.ip_address is not None:
+if wifi.is_connected and wifi.ip_address in (None, "0.0.0.0"):
+    print("Wifi almost connected, Waiting for IP")
+    counter=50
+    while not wifi.is_connected:
+        print(".", end="")
+        time.sleep(0.1)
+        if(counter==0):
+            break
+
+
+if not wifi.is_connected and wifi.ip_address not in (None, "0.0.0.0"):
     # using circuitpython get portalbase wifi information so we can construct the url from IP and port and password (both read from settings.toml using os.getenv("field", default_value) )
     ip = wifi.ip_address
     port = os.getenv("CIRCUITPY_WEB_API_PORT", "80")
@@ -83,9 +123,9 @@ qrdata=f"WIFI:S:{os.getenv('CIRCUITPY_WIFI_SSID', '*Unset*')};T:{os.getenv('CIRC
 os.listdir("/")
 if not ip:
     # Create a Bitmap from a PNG file
-    image = displayio.OnDiskBitmap("/circuitpythonlogo.bmp")
+    image = displayio.OnDiskBitmap("/circuitpythonlogo-color888.bmp")
 
-    palette = displayio.ColorConverter()
+    palette = displayio.ColorConverter(input_colorspace=displayio.Colorspace.RGB888)
 
     # # Create a Palette
     # palette = displayio.Palette(32)
@@ -108,44 +148,59 @@ if not ip:
         x=x,
         y=y,
     )
-    tilegrid
+    tilegrid.touch_callback = example_touch_callback
     img_group = displayio.Group()
     img_group.append(tilegrid)
 
     display.auto_refresh=False
     # Add the TileGrid to the display
     display.root_group.append(img_group)
+else:
+    for item in display.root_group:
+        if isinstance(item, displayio.TileGrid):
+            item.touch_callback = example_touch_callback
 
 display.refresh()
 display.auto_refresh=True
 
+def fix_x_y_for_rotation(x,y):
+    global graphics
+    if graphics.display.rotation == 90:
+        return (y, graphics.display.height- x)
+    elif graphics.display.rotation == 180:
+        return (graphics.display.width - x, graphics.display.height - y)
+    elif graphics.display.rotation == 270:
+        return (graphics.display.width - y, x)
+    else:
+        return (x,y)
+
+
 counter=0
 while True:
     counter+=1
-    # if counter % 30 == 0:
-    #     for group in base.splash:
-    #         for child in group:
-    #             if isinstance(child, displayio.Bitmap):
-    #                 # Child is a bitmap
-    #                 # Perform actions for bitmap
-    #                 print("bitmap")
-    #                 print(dir(child))
-    #                 print(dir(group))
-    #                 pass
-    #             elif isinstance(child, displayio.TileGrid):
-    #                 # Child is a text
-    #                 # Perform actions for text
-    #                 print("label")
-    #                 print(dir(child))
-    #                 print(dir(group))
-    #                 pass
-    #             else:    
-    #                 # Child is a group
-    #                 # Perform actions for group
-    #                 print("else")
-    #                 print(dir(child))
-    #                 print(dir(group))
-    #                 pass
+
+    if graphics.touch.touched:
+        try:
+            finger=-1
+            for touch in graphics.touch.touches:
+                finger+=1
+                x = touch["x"]
+                y = touch["y"]
+                # todo: refactor this into a PR for qualia graphics or touch directly
+                print("touch before fix")
+                print(graphics.display.width, graphics.display.height, x, y)
+                (x,y) = fix_x_y_for_rotation(x,y)
+                print("touch after fix")
+                print(graphics.display.width, graphics.display.height, x, y)
+                if (
+                    not 0 <= x < graphics.display.width
+                    or not 0 <= y < graphics.display.height
+                ):
+                    continue  # Skip out of bounds touches
+                triggerTouch(x, y, finger)
+        except Exception as e:
+            print(e)
+            pass
     if peripherals.button_up:
         peripherals.backlight = True
     if peripherals.button_down:
