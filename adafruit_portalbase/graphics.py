@@ -101,7 +101,7 @@ class GraphicsBase:
         gc.collect()
 
     def qrcode(
-        self, qr_data, *, qr_size=1, x=0, y=0, qr_color=0x000000
+        self, qr_data, *, qr_size=1, x=0, y=0, qr_color=0x000000, qr_bg_color=0xFFFFFF, return_group=False
     ):  # pylint: disable=invalid-name
         """Display a QR code
 
@@ -111,7 +111,7 @@ class GraphicsBase:
         :param y: The y position of upper left corner of the QR code on the display.
 
         """
-        if qr_data is None:
+        if qr_data is None and not return_group:
             if self._qr_group and self._qr_group in self.splash:
                 self.splash.remove(self._qr_group)
             self._qr_group = None
@@ -134,7 +134,7 @@ class GraphicsBase:
             raise RuntimeError("Could not make QR code")
         # monochrome (2 color) palette
         palette = displayio.Palette(2)
-        palette[0] = 0xFFFFFF
+        palette[0] = qr_bg_color
         palette[1] = qr_color
 
         # pylint: disable=invalid-name
@@ -152,6 +152,10 @@ class GraphicsBase:
 
         # display the QR code
         qr_sprite = displayio.TileGrid(qr_bitmap, pixel_shader=palette)
+        newgroup = displayio.Group(scale=qr_size, x=x, y=y)
+        newgroup.append(qr_sprite)
+        if return_group:
+            return newgroup
         if self._qr_group:
             try:
                 self._qr_group.pop()
@@ -160,7 +164,4 @@ class GraphicsBase:
         else:
             self._qr_group = displayio.Group()
             self.splash.append(self._qr_group)
-        self._qr_group.scale = qr_size
-        self._qr_group.x = x
-        self._qr_group.y = y
-        self._qr_group.append(qr_sprite)
+        self._qr_group = newgroup
