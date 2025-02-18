@@ -262,6 +262,7 @@ class PortalBase:
         # Make sure at least a single label exists
         if not self._text:
             self.add_text()
+        gc.collect()
         string = str(val)
         if self._text[index]["maxlen"] and len(string) > self._text[index]["maxlen"]:
             # too long! shorten it
@@ -483,6 +484,7 @@ class PortalBase:
                         string = values[value_index]  # ok it's a string
                 self._fetch_set_text(string, index=i)
                 value_index += 1
+        gc.collect()
 
     def get_local_time(self, location=None):
         """Accessor function for get_local_time()"""
