@@ -299,7 +299,9 @@ class NetworkBase:
         print("Fetching stream from", url)
 
         self.neo_status(STATUS_FETCHING)
+        gc.collect()
         response = self._wifi.requests.get(url, headers=headers, stream=True)
+        gc.collect()
 
         # we re-use this variable, now dealing with response headers
         headers = {}
@@ -316,24 +318,33 @@ class NetworkBase:
                 if "date" in headers:
                     print("Date: {}".format(headers["date"]))
             self.neo_status(STATUS_HTTP_ERROR)  # red = http error
-            raise HttpError(
+            err = HttpError(
                 "Code {}: {}".format(
                     response.status_code, response.reason.decode("utf-8")
                 ),
                 response,
             )
+            response.close()
+            del response
+            gc.collect()
+            raise err
+
 
         if self._debug:
             print(response.headers)
         if "content-length" in headers:
             content_length = int(headers["content-length"])
         else:
+            response.close()
+            del response
+            gc.collect()
             raise RuntimeError("Content-Length missing from headers")
         remaining = content_length
         print("Saving data to ", filename)
         stamp = time.monotonic()
         with open(filename, "wb") as file:
             for i in response.iter_content(min(remaining, chunk_size)):  # huge chunks!
+                gc.collect()
                 self.neo_status(STATUS_DOWNLOADING)
                 remaining -= len(i)
                 file.write(i)
@@ -353,6 +364,8 @@ class NetworkBase:
         print(
             "Created file of %d bytes in %0.1f seconds" % (os.stat(filename)[6], stamp)
         )
+        del response
+        gc.collect()
         self.neo_status(STATUS_OFF)
         if not content_length == os.stat(filename)[6]:
             raise RuntimeError
